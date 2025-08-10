@@ -1,0 +1,28 @@
+:root {
+  --color-bg: #0b0d12;
+  --color-surface: #111522;
+  --color-border: #283044;
+  --color-text: #e6e8f0;
+  --color-accent: #7bb6ff;
+
+  --selection: rgba(123, 182, 255, 0.25);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --space-1: 6px;
+  --space-2: 10px;
+  --space-3: 16px;
+  --space-4: 24px;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', 'Apple Color Emoji', 'Segoe UI Emoji';
+}
+
+[data-theme="light"] {
+  --color-bg: #ffffff;
+  --color-surface: #f6f7fb;
+  --color-border: #dadde7;
+  --color-text: #1b1f2a;
+  --color-accent: #2f6feb;
+  --selection: rgba(47, 111, 235, 0.18);
+}
+
