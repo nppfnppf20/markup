@@ -11,6 +11,16 @@ export const updatedAt = writable<number>(Date.now());
 
 export const hasImage = derived(docImage, (img) => !!img);
 
+// --- Undo / Redo state ---
+export const undoStack = writable<Layer[][]>([]);
+export const redoStack = writable<Layer[][]>([]);
+export const canUndo = derived(undoStack, (s) => s.length > 0);
+export const canRedo = derived(redoStack, (s) => s.length > 0);
+
+function deepCloneLayers(ls: Layer[]): Layer[] {
+  return JSON.parse(JSON.stringify(ls)) as Layer[];
+}
+
 export function createEmptyState(docId: string, user: UserRef): DocState {
   return {
     docId,
@@ -52,7 +62,18 @@ export function getStateSnapshot(docId: string, userId: string): DocState {
 }
 
 export function updateLayer(updater: (prev: Layer[]) => Layer[]) {
-  layers.update(updater);
+  // Capture previous state for undo
+  let prevLayers: Layer[] = [];
+  layers.subscribe((v) => (prevLayers = v))();
+  const prevClone = deepCloneLayers(prevLayers);
+
+  layers.update((current) => {
+    const next = updater(current);
+    // Push previous to undo stack and clear redo stack
+    undoStack.update((s) => [...s, prevClone]);
+    redoStack.set([]);
+    return next;
+  });
   updatedAt.set(Date.now());
 }
 
@@ -63,6 +84,38 @@ export function upsertShape(layerId: string, shape: Shape) {
 export function deleteShape(layerId: string, shapeId: string) {
   console.log('deleteShape called with layerId:', layerId, 'shapeId:', shapeId);
   updateLayer((prev) => prev.map((l) => (l.id === layerId ? { ...l, shapes: l.shapes.filter((s) => s.id !== shapeId) } : l)));
+}
+
+export function undo() {
+  let _undo: Layer[][] = [];
+  let _redo: Layer[][] = [];
+  let _current: Layer[] = [];
+  undoStack.subscribe((v) => (_undo = v))();
+  redoStack.subscribe((v) => (_redo = v))();
+  layers.subscribe((v) => (_current = v))();
+  if (_undo.length === 0) return;
+  const previous = _undo[_undo.length - 1];
+  undoStack.set(_undo.slice(0, -1));
+  // push current into redo
+  redoStack.set([..._redo, deepCloneLayers(_current)]);
+  layers.set(previous);
+  updatedAt.set(Date.now());
+}
+
+export function redo() {
+  let _redo: Layer[][] = [];
+  let _undo: Layer[][] = [];
+  let _current: Layer[] = [];
+  redoStack.subscribe((v) => (_redo = v))();
+  undoStack.subscribe((v) => (_undo = v))();
+  layers.subscribe((v) => (_current = v))();
+  if (_redo.length === 0) return;
+  const next = _redo[_redo.length - 1];
+  redoStack.set(_redo.slice(0, -1));
+  // push current into undo
+  undoStack.set([..._undo, deepCloneLayers(_current)]);
+  layers.set(next);
+  updatedAt.set(Date.now());
 }
 
 function upsertById<T extends { id: string }>(arr: T[], item: T): T[] {

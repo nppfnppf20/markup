@@ -4,7 +4,7 @@
   import type { LockAdapter } from '../../lib/adapters/lock';
   import type { StorageAdapter } from '../../lib/adapters/storage';
   import type { DocState, UserRef, Layer, Shape, FreehandShape, ArrowShape, TextShape, Point, Tool } from '../../lib/types';
-  import { applyState, createEmptyState, docImage, docVersion, getStateSnapshot, layers, updateLayer, currentTool, upsertShape, deleteShape } from '../../lib/stores/board';
+  import { applyState, createEmptyState, docImage, docVersion, getStateSnapshot, layers, updateLayer, currentTool, upsertShape, deleteShape, undo, redo, canUndo, canRedo } from '../../lib/stores/board';
   import { fileToDataUrlResized } from '../../lib/image';
 
   export let docId: string;
@@ -597,6 +597,17 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (!isEditor) return;
+    // Undo / Redo shortcuts
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      undo();
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      redo();
+      return;
+    }
     if ((e.key === 'Backspace' || e.key === 'Delete') && selectedId) {
       const layer = $layers.find((l) => l.shapes.some((s) => s.id === selectedId));
       if (layer) {
@@ -702,6 +713,10 @@
       <button class:active={$currentTool === 'draw'} aria-pressed={$currentTool === 'draw'} disabled={!isEditor} on:click={() => currentTool.set('draw')}>Draw</button>
       <button class:active={$currentTool === 'text'} aria-pressed={$currentTool === 'text'} disabled={!isEditor} on:click={() => currentTool.set('text')}>Text box</button>
       <button class:active={$currentTool === 'erase'} aria-pressed={$currentTool === 'erase'} disabled={!isEditor} on:click={() => currentTool.set('erase')}>Eraser</button>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center; padding-left: 12px; border-left:1px solid var(--color-border);">
+      <button disabled={!$canUndo || !isEditor} title="Undo (⌘Z)" on:click={() => undo()}>Undo</button>
+      <button disabled={!$canRedo || !isEditor} title="Redo (⇧⌘Z)" on:click={() => redo()}>Redo</button>
     </div>
     <div style="display:flex; gap:16px; align-items:center; padding-left: 16px;">
       <div class="width-dropdown" bind:this={colorDropdownEl}>
