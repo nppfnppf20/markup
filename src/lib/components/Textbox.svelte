@@ -134,7 +134,7 @@
     // If very little movement, treat it as a click for selection
     if (totalMovement < 5) {
       console.log('Textbox: Treating as click/select (movement:', totalMovement, ')');
-      dispatch('select');
+      dispatch('select', {});
     }
     
     const svg = (e.target as Element).closest('svg');
@@ -160,7 +160,7 @@
     on:pointerdown={onDragStart}
   />
   <foreignObject x={x} y={y} width={width || 200} height={height || 60} style="pointer-events: {isEditing ? 'auto' : 'none'};">
-    <div xmlns="http://www.w3.org/1999/xhtml" style="width:100%; height:100%; display:flex; pointer-events: {isEditing ? 'auto' : 'none'};">
+    <div style="width:100%; height:100%; display:flex; pointer-events: {isEditing ? 'auto' : 'none'};">
       {#if isEditing}
         <textarea
           bind:this={textareaEl}

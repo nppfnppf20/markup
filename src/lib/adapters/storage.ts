@@ -1,4 +1,4 @@
-import type { DocState, VersionSnapshot } from '@lib/types';
+import type { DocState, VersionSnapshot } from '../types';
 
 export interface StorageAdapter {
   getDocument(docId: string): Promise<DocState>;
