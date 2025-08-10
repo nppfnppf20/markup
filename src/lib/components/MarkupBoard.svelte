@@ -222,10 +222,13 @@
   }
 
   function onOverlayPointerDown(e: PointerEvent) {
+    console.log('MarkupBoard intercepted pointer event from:', e.target, 'Current tool:', $currentTool);
     if (!isEditor) return;
     if ($currentTool === 'select') {
-      // Clicking background clears selection
-      selectedTextId = null;
+      // Only clear selection if true background (the SVG itself) was clicked
+      if (e.target === e.currentTarget) {
+        selectedTextId = null;
+      }
     }
     activeLayerId = getActiveLayerId();
     if (!activeLayerId) return;
@@ -412,10 +415,16 @@
                      fontSize={shape.fontSize || 16}
                      isEditing={editingTextId === shape.id}
                      selected={selectedTextId === shape.id}
-                     on:select={() => { if ($currentTool === 'select') selectedTextId = shape.id; }}
-                     on:delete={() => { deleteShape(shape.layerId, shape.id); selectedTextId = null; }}
+                     on:select={() => { 
+                       if ($currentTool === 'select') {
+                         console.log('Selecting text box:', shape.id, 'Previous selected:', selectedTextId);
+                         selectedTextId = shape.id; 
+                       }
+                     }}
                      on:save={(e) => { upsertShape(shape.layerId, { ...shape, text: e.detail.text, updatedAt: Date.now() }); editingTextId = null; editingTextValue = ''; }}
                      on:resize={(e) => { upsertShape(shape.layerId, { ...shape, width: e.detail.width, height: e.detail.height, updatedAt: Date.now() }); }}
+                     on:move={(e) => { upsertShape(shape.layerId, { ...shape, position: { x: e.detail.x, y: e.detail.y }, updatedAt: Date.now() }); }}
+                     on:startEdit={() => { editingTextId = shape.id; editingTextValue = shape.text; }}
                    />
                 {/if}
               {/each}
@@ -430,6 +439,74 @@
           {#if $currentTool === 'text' && textDraftRect}
             <rect x={textDraftRect.x} y={textDraftRect.y} width={textDraftRect.w} height={textDraftRect.h} fill="none" stroke={strokeColor} stroke-dasharray="4 4" />
           {/if}
+        </svg>
+        
+        <!-- UI Layer SVG - for interactive elements like delete/resize buttons -->
+        <svg
+          width={$docImage.width}
+          height={$docImage.height}
+          style="position:absolute; inset:0; pointer-events:none;"
+        >
+          {#each $layers as layer (layer.id)}
+            {#if layer.visible}
+              {#each layer.shapes as shape (shape.id)}
+                {#if shape.kind === 'text' && selectedTextId === shape.id}
+                  <!-- Delete button for selected text - Square in top corner -->
+                  <!-- DEBUG: Shape {shape.id} is selected (selectedTextId: {selectedTextId}) -->
+                  <g 
+                    transform={`translate(${(shape.position.x + (shape.width || 200) - 20)}, ${(shape.position.y) - 10})`}
+                    style="cursor: pointer; pointer-events: auto;"
+                    on:mousedown|stopPropagation={() => { console.log('UI Layer: Delete button clicked!'); deleteShape(shape.layerId, shape.id); selectedTextId = null; }}
+                  >
+                    <rect 
+                      x="0" 
+                      y="0" 
+                      width="20" 
+                      height="20" 
+                      rx="3" 
+                      ry="3" 
+                      fill="#d9534f" 
+                      stroke="#a94442" 
+                      stroke-width="2"
+                    />
+                    <text 
+                      x="10" 
+                      y="14" 
+                      text-anchor="middle" 
+                      fill="#fff" 
+                      font-size="14" 
+                      font-family="sans-serif" 
+                      style="user-select: none; pointer-events: none;" 
+                    >
+                      ×
+                    </text>
+                  </g>
+                  <!-- Resize handle for selected text -->
+                  <g 
+                    transform={`translate(${(shape.position.x + (shape.width || 200) - 8)}, ${(shape.position.y + (shape.height || 60) - 8)})`} 
+                    style="pointer-events: auto;"
+                  >
+                    <rect 
+                      x={-6} 
+                      y={-6} 
+                      width={12} 
+                      height={12} 
+                      rx="2" 
+                      ry="2" 
+                      fill="#2f6feb" 
+                      stroke="#1f4ed4" 
+                      style="cursor: se-resize;" 
+                      on:pointerdown|stopPropagation={(e) => {
+                        console.log('UI Layer: Resize handle clicked');
+                        // TODO: Implement resize logic here
+                      }} 
+                    />
+                    <path d="M -2,-2 L 2,2 M 0,-2 L 2,0 M -2,0 L 0,2" stroke="white" stroke-width="1" style="pointer-events: none;" />
+                  </g>
+                {/if}
+              {/each}
+            {/if}
+          {/each}
         </svg>
       </div>
     {:else}

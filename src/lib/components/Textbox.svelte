@@ -14,17 +14,23 @@
   const dispatch = createEventDispatcher<{
     save: { text: string };
     select: {};
-    delete: {};
     resize: { width: number; height: number };
+    move: { x: number; y: number };
+    startEdit: {};
   }>();
 
   let textareaEl: HTMLTextAreaElement | null = null;
   let editingValue = text;
   let isResizing = false;
+  let isDragging = false;
   let resizeStartX = 0;
   let resizeStartY = 0;
+  let dragStartX = 0;
+  let dragStartY = 0;
   let startWidth = 0;
   let startHeight = 0;
+  let startX = 0;
+  let startY = 0;
 
   onMount(() => {
     if (isEditing && textareaEl) textareaEl.focus();
@@ -43,12 +49,13 @@
   }
 
   function onResizeStart(e: PointerEvent) {
+    console.log('Textbox resize start triggered');
     e.stopPropagation();
     isResizing = true;
     resizeStartX = e.clientX;
     resizeStartY = e.clientY;
-    startWidth = width;
-    startHeight = height;
+    startWidth = width || 200;
+    startHeight = height || 60;
     
     const svg = (e.target as Element).closest('svg');
     if (svg) {
@@ -81,37 +88,92 @@
       svg.releasePointerCapture(e.pointerId);
     }
   }
+
+  function onDragStart(e: PointerEvent) {
+    console.log('Textbox onDragStart called, isEditing:', isEditing, 'selected:', selected);
+    if (isEditing) return; // Don't drag while editing
+    e.stopPropagation();
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    startX = x;
+    startY = y;
+    
+    const svg = (e.target as Element).closest('svg');
+    if (svg) {
+      svg.addEventListener('pointermove', onDragMove);
+      svg.addEventListener('pointerup', onDragEnd);
+      svg.setPointerCapture(e.pointerId);
+    }
+  }
+
+  function onDragMove(e: PointerEvent) {
+    if (!isDragging) return;
+    
+    const deltaX = e.clientX - dragStartX;
+    const deltaY = e.clientY - dragStartY;
+    
+    // Only dispatch move if there's actual movement to avoid interference
+    if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+      const newX = Math.max(0, startX + deltaX);
+      const newY = Math.max(0, startY + deltaY);
+      
+      dispatch('move', { x: newX, y: newY });
+    }
+  }
+
+  function onDragEnd(e: PointerEvent) {
+    if (!isDragging) return;
+    
+    const deltaX = e.clientX - dragStartX;
+    const deltaY = e.clientY - dragStartY;
+    const totalMovement = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    
+    isDragging = false;
+    
+    // If very little movement, treat it as a click for selection
+    if (totalMovement < 5) {
+      console.log('Textbox: Treating as click/select (movement:', totalMovement, ')');
+      dispatch('select');
+    }
+    
+    const svg = (e.target as Element).closest('svg');
+    if (svg) {
+      svg.removeEventListener('pointermove', onDragMove);
+      svg.removeEventListener('pointerup', onDragEnd);
+      svg.releasePointerCapture(e.pointerId);
+    }
+  }
 </script>
 
-<g on:click|stopPropagation={() => dispatch('select')}>
-  <rect x={x} y={y} width={width || 200} height={height || 60} fill="white" stroke={color} rx="6" ry="6" />
-  <foreignObject x={x} y={y} width={width || 200} height={height || 60}>
-    <div xmlns="http://www.w3.org/1999/xhtml" style="width:100%; height:100%; display:flex;">
+<g>
+  <rect 
+    x={x} 
+    y={y} 
+    width={width || 200} 
+    height={height || 60} 
+    fill="white" 
+    stroke={color} 
+    rx="6" 
+    ry="6" 
+    style="cursor: {isEditing ? 'text' : 'move'};"
+    on:pointerdown={onDragStart}
+  />
+  <foreignObject x={x} y={y} width={width || 200} height={height || 60} style="pointer-events: {isEditing ? 'auto' : 'none'};">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="width:100%; height:100%; display:flex; pointer-events: {isEditing ? 'auto' : 'none'};">
       {#if isEditing}
         <textarea
           bind:this={textareaEl}
           bind:value={editingValue}
           on:keydown={onKeydown}
           on:blur={onBlur}
-          style="flex:1; resize:none; border:0; background: transparent; color: {color}; padding:6px; outline:none; font-size:{fontSize}px;"
+          style="flex:1; resize:none; border:0; background: transparent; color: {color}; padding:6px; outline:none; font-size:{fontSize}px; pointer-events: auto;"
         />
       {:else}
-        <div style="flex:1; white-space:pre-wrap; color:{color}; font-size:{fontSize}px; padding:6px;">{text}</div>
+        <div style="flex:1; white-space:pre-wrap; color:{color}; font-size:{fontSize}px; padding:6px; pointer-events: none;" on:pointerdown={onDragStart}>{text}</div>
       {/if}
     </div>
   </foreignObject>
-  {#if selected}
-    <!-- Delete button -->
-    <g transform={`translate(${(x + (width || 200) - 14)}, ${(y) + 2})`} style="pointer-events: auto;">
-      <rect x={-12} y={-2} width={16} height={16} rx="3" ry="3" fill="#d9534f" stroke="#a94442" style="cursor: pointer;" on:click|stopPropagation={() => dispatch('delete')} />
-      <text x={-8} y={10} fill="#fff" font-size="12" font-family="sans-serif" style="cursor: pointer; user-select: none;" on:click|stopPropagation={() => dispatch('delete')}>
-        ×
-      </text>
-    </g>
-    <!-- Resize handle -->
-    <g transform={`translate(${(x + (width || 200) - 8)}, ${(y + (height || 60) - 8)})`} style="pointer-events: auto;">
-      <rect x={-6} y={-6} width={12} height={12} rx="2" ry="2" fill="#2f6feb" stroke="#1f4ed4" style="cursor: se-resize;" on:pointerdown={onResizeStart} />
-      <path d="M -2,-2 L 2,2 M 0,-2 L 2,0 M -2,0 L 0,2" stroke="white" stroke-width="1" style="pointer-events: none;" />
-    </g>
-  {/if}
 </g>
+
+<!-- Delete and resize buttons are now handled in MarkupBoard's UI layer -->

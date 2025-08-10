@@ -61,6 +61,7 @@ export function upsertShape(layerId: string, shape: Shape) {
 }
 
 export function deleteShape(layerId: string, shapeId: string) {
+  console.log('deleteShape called with layerId:', layerId, 'shapeId:', shapeId);
   updateLayer((prev) => prev.map((l) => (l.id === layerId ? { ...l, shapes: l.shapes.filter((s) => s.id !== shapeId) } : l)));
 }
 
