@@ -340,6 +340,9 @@
         text: shape.text,
         fontSize: shape.fontSize || 16,
         fill: shape.fill || '#2f6feb',
+        wrap: 'word',
+        align: 'left',
+        verticalAlign: 'top',
         listening: false,
       });
       group.add(rect);
@@ -351,13 +354,13 @@
         upsertShape(shape.layerId, { ...shape, position: { x: pos.x, y: pos.y }, updatedAt: Date.now() });
       });
       group.on('transformend', () => {
-        // get new size from rect
         const newW = Math.max(40, rect.width() * group.scaleX());
         const newH = Math.max(30, rect.height() * group.scaleY());
         group.scale({ x: 1, y: 1 });
         rect.width(newW); rect.height(newH);
         text.width(Math.max(0, newW - 12));
         text.height(Math.max(0, newH - 12));
+        text.fontSize(shape.fontSize || 16); // keep font size consistent
         upsertShape(shape.layerId, { ...shape, width: newW, height: newH, updatedAt: Date.now() });
         shapesLayer?.batchDraw();
       });
