@@ -266,9 +266,23 @@
     if (!shapesLayer) return;
     nodeById.clear();
     shapesLayer.destroyChildren();
+    // First add non-text shapes (freehand, arrow)
     for (const layer of $layers) {
       if (!layer.visible) continue;
       for (const shape of layer.shapes) {
+        if (shape.kind === 'text') continue;
+        const node = createNodeForShape(shape);
+        if (node) {
+          nodeById.set(shape.id, node);
+          shapesLayer.add(node);
+        }
+      }
+    }
+    // Then add text shapes on top
+    for (const layer of $layers) {
+      if (!layer.visible) continue;
+      for (const shape of layer.shapes) {
+        if (shape.kind !== 'text') continue;
         const node = createNodeForShape(shape);
         if (node) {
           nodeById.set(shape.id, node);
@@ -308,7 +322,7 @@
       return arrow;
     }
     if (shape.kind === 'text') {
-      const group = new Konva.Group({ x: shape.position.x, y: shape.position.y, draggable: isEditor });
+      const group = new Konva.Group({ x: shape.position.x, y: shape.position.y, draggable: isEditor && activeTool === 'select' });
       const rect = new Konva.Rect({
         x: 0,
         y: 0,
@@ -438,12 +452,16 @@
       const temp = new Konva.Line({ points: [p.x, p.y], stroke: strokeColor, strokeWidth, lineCap: 'round', lineJoin: 'round' });
       shapesLayer?.add(temp);
       tempLineRef = temp;
+      // keep text above temp drawings
+      shapesLayer?.getChildren().forEach((child) => { if (child instanceof Konva.Group) child.moveToTop(); });
       shapesLayer?.batchDraw();
     } else if (activeTool === 'arrow') {
       drawingArrowStart = { x: p.x, y: p.y };
       const temp = new Konva.Arrow({ points: [p.x, p.y, p.x, p.y], stroke: strokeColor, strokeWidth, pointerLength: 10, pointerWidth: 10 });
       shapesLayer?.add(temp);
       tempArrowRef = temp;
+      // keep text above temp drawings
+      shapesLayer?.getChildren().forEach((child) => { if (child instanceof Konva.Group) child.moveToTop(); });
       shapesLayer?.batchDraw();
     } else if (activeTool === 'text') {
       if (editingTextId) return;
@@ -559,6 +577,11 @@
     const _layersDep = $layers; // establish reactive dependency
     if (stage && shapesLayer) {
       rebuildShapes();
+      // ensure text nodes draggable only in select mode
+      const enableDrag = isEditor && activeTool === 'select';
+      nodeById.forEach((node) => {
+        if (node instanceof Konva.Group) node.draggable(enableDrag);
+      });
       // restore selection
       if (selectedId) selectNode(selectedId);
       // if currently editing, reposition editor
@@ -584,7 +607,19 @@
 
   onMount(() => {
     loadInitial();
-    const unsub = currentTool.subscribe((v) => { activeTool = v; });
+    const unsub = currentTool.subscribe((v) => {
+      activeTool = v;
+      // toggle draggability of text groups based on tool
+      const enableDrag = isEditor && activeTool === 'select';
+      nodeById.forEach((node) => {
+        if (node instanceof Konva.Group) node.draggable(enableDrag);
+      });
+      if (activeTool !== 'select') {
+        selectedId = null;
+        transformer?.nodes([]);
+        uiLayer?.batchDraw();
+      }
+    });
     window.addEventListener('keydown', handleKeydown);
     // Close width dropdown on outside click
     const onDocClick = (e: MouseEvent) => {
@@ -662,7 +697,7 @@
       <button class:active={$currentTool === 'select'} aria-pressed={$currentTool === 'select'} disabled={!isEditor} on:click={() => currentTool.set('select')}>Select</button>
       <button class:active={$currentTool === 'arrow'} aria-pressed={$currentTool === 'arrow'} disabled={!isEditor} on:click={() => currentTool.set('arrow')}>Arrow</button>
       <button class:active={$currentTool === 'draw'} aria-pressed={$currentTool === 'draw'} disabled={!isEditor} on:click={() => currentTool.set('draw')}>Draw</button>
-      <button class:active={$currentTool === 'text'} aria-pressed={$currentTool === 'text'} disabled={!isEditor} on:click={() => currentTool.set('text')}>Text</button>
+      <button class:active={$currentTool === 'text'} aria-pressed={$currentTool === 'text'} disabled={!isEditor} on:click={() => currentTool.set('text')}>Text box</button>
       <button class:active={$currentTool === 'erase'} aria-pressed={$currentTool === 'erase'} disabled={!isEditor} on:click={() => currentTool.set('erase')}>Eraser</button>
     </div>
     <div style="display:flex; gap:16px; align-items:center; padding-left: 16px;">
