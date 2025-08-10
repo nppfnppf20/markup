@@ -44,6 +44,23 @@
   const READONLY_POLL_MS = 12000;
   const AUTOSAVE_MS = 1200;
   const MIN_TEXT_SIZE = 20; // px required to create a text box
+  const widthOptions = [2, 4, 6, 8, 12];
+  const colorOptions = [
+    '#111827', // near-black
+    '#ef4444', // red
+    '#f97316', // orange
+    '#eab308', // yellow
+    '#10b981', // emerald
+    '#06b6d4', // cyan
+    '#3b82f6', // blue
+    '#8b5cf6', // violet
+    '#ec4899', // pink
+    '#64748b', // slate
+  ];
+  let colorDropdownOpen = false;
+  let colorDropdownEl: HTMLDivElement | null = null;
+  let widthDropdownOpen = false;
+  let widthDropdownEl: HTMLDivElement | null = null;
 
   let autosaveTimer: any;
   function scheduleAutosave() {
@@ -521,6 +538,9 @@
         addShape(shape);
         editingTextId = id;
         editingTextValue = '';
+        // After creating a textbox, switch back to select tool automatically
+        currentTool.set('select');
+        activeTool = 'select';
         // editor will position on next rebuild
       }
     }
@@ -566,6 +586,15 @@
     loadInitial();
     const unsub = currentTool.subscribe((v) => { activeTool = v; });
     window.addEventListener('keydown', handleKeydown);
+    // Close width dropdown on outside click
+    const onDocClick = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (widthDropdownOpen && widthDropdownEl && !widthDropdownEl.contains(t)) widthDropdownOpen = false;
+      if (colorDropdownOpen && colorDropdownEl && !colorDropdownEl.contains(t)) colorDropdownOpen = false;
+    };
+    document.addEventListener('click', onDocClick);
+    // cleanup
+    return () => document.removeEventListener('click', onDocClick);
   });
   onDestroy(async () => {
     window.removeEventListener('keydown', handleKeydown);
@@ -590,6 +619,11 @@
     display: flex; gap: var(--space-2); padding: var(--space-2);
     border-bottom: 1px solid var(--color-border); background: var(--color-surface);
   }
+  .toolbar button.active {
+    border-color: #2f6feb;
+    background: rgba(47, 111, 235, 0.12);
+    color: #1f4ed4;
+  }
   .stage-wrap { position: relative; }
   .busy-banner { position: absolute; top: 10px; right: 10px; background: #8a2c2c; color: white; padding: 4px 8px; border-radius: 6px; opacity: 0.9; }
   .image-input { margin-left: auto; }
@@ -598,6 +632,18 @@
     z-index: 10;
     display: none;
   }
+  .swatch-line { width:22px; border-radius:2px; }
+  .width-dropdown { position: relative; }
+  .dropdown-trigger { display:flex; align-items:center; gap:8px; border:1px solid var(--color-border); background:#fff; border-radius:4px; padding:4px 8px; cursor:pointer; }
+  .dropdown-menu { position:absolute; top:100%; left:0; margin-top:6px; background:#fff; border:1px solid var(--color-border); border-radius:6px; box-shadow:0 4px 18px rgba(0,0,0,0.12); padding:6px; display:flex; flex-direction:column; gap:4px; z-index: 5; }
+  .width-option { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:4px; border:none; background:transparent; cursor:pointer; }
+  .width-option[aria-selected="true"] { background: rgba(47,111,235,0.12); }
+  .dropdown-caret { margin-left: 6px; transition: transform 120ms ease; font-size: 18px; color: #444; }
+  .dropdown-trigger[aria-expanded="true"] .dropdown-caret { transform: rotate(180deg); }
+  .color-swatch { width:22px; height:22px; border-radius:50%; border:1px solid var(--color-border); cursor:pointer; padding:0; }
+  .color-swatch.active { outline: 2px solid #2f6feb; outline-offset: 2px; }
+  .color-option { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:4px; border:none; background:transparent; cursor:pointer; }
+  .color-option[aria-selected="true"] { background: rgba(47,111,235,0.12); }
   .editor-overlay textarea {
     width: 100%;
     height: 100%;
@@ -613,15 +659,43 @@
 <div class="board-root">
   <div class="toolbar">
     <div>
-      <button disabled={!isEditor} on:click={() => currentTool.set('select')}>Select</button>
-      <button disabled={!isEditor} on:click={() => currentTool.set('arrow')}>Arrow</button>
-      <button disabled={!isEditor} on:click={() => currentTool.set('draw')}>Draw</button>
-      <button disabled={!isEditor} on:click={() => currentTool.set('text')}>Text</button>
-      <button disabled={!isEditor} on:click={() => currentTool.set('erase')}>Eraser</button>
+      <button class:active={$currentTool === 'select'} aria-pressed={$currentTool === 'select'} disabled={!isEditor} on:click={() => currentTool.set('select')}>Select</button>
+      <button class:active={$currentTool === 'arrow'} aria-pressed={$currentTool === 'arrow'} disabled={!isEditor} on:click={() => currentTool.set('arrow')}>Arrow</button>
+      <button class:active={$currentTool === 'draw'} aria-pressed={$currentTool === 'draw'} disabled={!isEditor} on:click={() => currentTool.set('draw')}>Draw</button>
+      <button class:active={$currentTool === 'text'} aria-pressed={$currentTool === 'text'} disabled={!isEditor} on:click={() => currentTool.set('text')}>Text</button>
+      <button class:active={$currentTool === 'erase'} aria-pressed={$currentTool === 'erase'} disabled={!isEditor} on:click={() => currentTool.set('erase')}>Eraser</button>
     </div>
-    <div style="display:flex; gap:10px; align-items:center; padding-left: 16px;">
-      <label>Color <input type="color" bind:value={strokeColor} disabled={!isEditor} /></label>
-      <label>Width <input type="number" min="1" max="12" bind:value={strokeWidth} disabled={!isEditor} style="width:60px" /></label>
+    <div style="display:flex; gap:16px; align-items:center; padding-left: 16px;">
+      <div class="width-dropdown" bind:this={colorDropdownEl}>
+        <button class="dropdown-trigger" aria-haspopup="listbox" aria-expanded={colorDropdownOpen} disabled={!isEditor} on:click={() => colorDropdownOpen = !colorDropdownOpen}>
+          <span class="color-swatch" style={`background:${strokeColor}; width:16px; height:16px;`}></span>
+          <span class="dropdown-caret">▾</span>
+        </button>
+        {#if colorDropdownOpen}
+          <div class="dropdown-menu" role="listbox">
+            {#each colorOptions as c}
+              <button class="color-option" role="option" aria-selected={strokeColor === c} aria-label={`Color ${c}`} on:click={() => { strokeColor = c; colorDropdownOpen = false; }}>
+                <span class="color-swatch" style={`background:${c}`}></span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      <div class="width-dropdown" bind:this={widthDropdownEl}>
+        <button class="dropdown-trigger" aria-haspopup="listbox" aria-expanded={widthDropdownOpen} disabled={!isEditor} on:click={() => widthDropdownOpen = !widthDropdownOpen}>
+          <span class="swatch-line" style="height:{strokeWidth}px; background:{strokeColor}; width:24px;"></span>
+          <span class="dropdown-caret">▾</span>
+        </button>
+        {#if widthDropdownOpen}
+          <div class="dropdown-menu" role="listbox">
+            {#each widthOptions as w}
+              <button class="width-option" role="option" aria-selected={strokeWidth === w} aria-label={`Width ${w}px`} on:click={() => { strokeWidth = w; widthDropdownOpen = false; }}>
+                <span class="swatch-line" style="height:{w}px; background:{strokeColor}; width:24px;"></span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
     </div>
     <input class="image-input" type="file" accept="image/*" on:change={onFileChange} disabled={!isEditor} />
   </div>
