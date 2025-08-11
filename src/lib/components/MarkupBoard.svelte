@@ -14,11 +14,16 @@
 
   let imgEl: HTMLImageElement | null = null;
   let stageContainerEl: HTMLDivElement | null = null;
+  let canvasCenterEl: HTMLDivElement | null = null;
   let stage: Konva.Stage | null = null;
   let shapesLayer: Konva.Layer | null = null;
   let uiLayer: Konva.Layer | null = null;
   let transformer: Konva.Transformer | null = null;
   const nodeById = new Map<string, Konva.Group | Konva.Shape>();
+  let bgLayer: Konva.Layer | null = null;
+  let bgRect: Konva.Rect | null = null;
+  let imageLayer: Konva.Layer | null = null;
+  let imageNode: Konva.Image | null = null;
 
   let strokeColor = '#2f6feb';
   let strokeWidth = 3;
@@ -61,6 +66,21 @@
   let colorDropdownEl: HTMLDivElement | null = null;
   let widthDropdownOpen = false;
   let widthDropdownEl: HTMLDivElement | null = null;
+  const CANVAS_PADDING = 120; // base unit
+  const PAD_X = CANVAS_PADDING * 4; // left/right per side
+  const PAD_Y = CANVAS_PADDING * 2; // top/bottom per side
+  let baseScale = 1; // fit-to-view scale
+  let userZoom = 1;  // user-controlled zoom multiplier
+  $: displayedZoom = Math.round(baseScale * userZoom * 100);
+  function currentScale() { return baseScale * userZoom; }
+
+  function onZoomInput(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const next = Math.max(0.25, Math.min(3, Number(input.value)));
+    if (next === userZoom) return;
+    userZoom = next;
+    ensureStage();
+  }
 
   let autosaveTimer: any;
   function scheduleAutosave() {
@@ -234,23 +254,48 @@
 
   function ensureStage() {
     if (!$docImage || !stageContainerEl) return;
-    const width = $docImage.width;
-    const height = $docImage.height;
+    const sceneWidth = $docImage.width + PAD_X * 2;
+    const sceneHeight = $docImage.height + PAD_Y * 2;
+    // compute scale to fit viewport
+    const containerW = canvasCenterEl?.clientWidth ?? window.innerWidth;
+    const containerH = canvasCenterEl?.clientHeight ?? window.innerHeight;
+    const maxW = containerW * 0.95;
+    const maxH = containerH * 0.9;
+    const fit = Math.min(maxW / sceneWidth, maxH / sceneHeight, 1);
+    baseScale = isFinite(fit) && fit > 0 ? fit : 1;
+    const sc = currentScale();
+    const displayW = Math.round(sceneWidth * sc);
+    const displayH = Math.round(sceneHeight * sc);
     if (stage) {
-      stage.size({ width, height });
+      stage.size({ width: displayW, height: displayH });
+      stage.scale({ x: sc, y: sc });
+      ensureBackground(sceneWidth, sceneHeight);
+      ensureImageNode();
       return;
     }
-    stage = new Konva.Stage({ container: stageContainerEl, width, height });
+    stage = new Konva.Stage({ container: stageContainerEl, width: displayW, height: displayH });
+    stage.scale({ x: sc, y: sc });
+    bgLayer = new Konva.Layer();
+    imageLayer = new Konva.Layer();
     shapesLayer = new Konva.Layer();
     uiLayer = new Konva.Layer();
     transformer = new Konva.Transformer({ rotateEnabled: false });
     uiLayer.add(transformer);
-    stage.add(shapesLayer, uiLayer);
+    stage.add(bgLayer, imageLayer, shapesLayer, uiLayer);
 
     // Stage-level input handling for tools
     stage.on('mousedown touchstart', onStagePointerDown);
     stage.on('mousemove touchmove', onStagePointerMove);
     stage.on('mouseup touchend', onStagePointerUp);
+    stage.on('wheel', (evt) => {
+      evt.evt.preventDefault();
+      const direction = evt.evt.deltaY > 0 ? -1 : 1; // trackpad/natural
+      const factor = direction > 0 ? 1.1 : 0.9;
+      const next = Math.min(3, Math.max(0.25, userZoom * factor));
+      if (next === userZoom) return;
+      userZoom = next;
+      ensureStage();
+    });
     stage.on('click tap', (evt) => {
       if (evt.target === stage && activeTool === 'select') {
         selectedId = null;
@@ -260,6 +305,45 @@
     });
 
     rebuildShapes();
+    ensureBackground(sceneWidth, sceneHeight);
+    ensureImageNode();
+  }
+
+  function ensureBackground(width: number, height: number) {
+    if (!bgLayer) return;
+    if (!bgRect) {
+      bgRect = new Konva.Rect({ x: 0, y: 0, width, height, fill: '#ffffff', listening: false });
+      bgLayer.add(bgRect);
+    } else {
+      bgRect.size({ width, height });
+    }
+    bgLayer.batchDraw();
+  }
+
+  function ensureImageNode() {
+    if (!imageLayer || !$docImage) return;
+    const applyToNode = (img: HTMLImageElement) => {
+      if (!imageNode) {
+        imageNode = new Konva.Image({
+          x: PAD_X,
+          y: PAD_Y,
+          image: img,
+          width: $docImage!.width,
+          height: $docImage!.height,
+          listening: false,
+        });
+        imageLayer!.add(imageNode);
+      } else {
+        imageNode.position({ x: PAD_X, y: PAD_Y });
+        imageNode.image(img);
+        imageNode.size({ width: $docImage!.width, height: $docImage!.height });
+      }
+      imageLayer!.batchDraw();
+    };
+    // Load a fresh Image from data URL
+    const img = new window.Image();
+    img.onload = () => applyToNode(img);
+    img.src = $docImage.dataUrl;
   }
 
   function rebuildShapes() {
@@ -393,10 +477,11 @@
     if (!node) return;
     const abs = node.getClientRect({ relativeTo: stage! });
     const containerRect = stageContainerEl.getBoundingClientRect();
-    const x = abs.x + containerRect.left;
-    const y = abs.y + containerRect.top;
-    const w = abs.width;
-    const h = abs.height;
+    const sc = currentScale();
+    const x = containerRect.left + abs.x * sc;
+    const y = containerRect.top + abs.y * sc;
+    const w = abs.width * sc;
+    const h = abs.height * sc;
     editorStyle = {
       display: 'block',
       left: `${x}px`,
@@ -449,18 +534,20 @@
     isPointerDown = true;
     const p = stage.getPointerPosition();
     if (!p) return;
+    const sc = currentScale();
+    const cx = p.x / sc; const cy = p.y / sc;
     if (activeTool === 'draw') {
-      drawingPath = [{ x: p.x, y: p.y }];
+      drawingPath = [{ x: cx, y: cy }];
       // temp line
-      const temp = new Konva.Line({ points: [p.x, p.y], stroke: strokeColor, strokeWidth, lineCap: 'round', lineJoin: 'round' });
+      const temp = new Konva.Line({ points: [cx, cy], stroke: strokeColor, strokeWidth, lineCap: 'round', lineJoin: 'round' });
       shapesLayer?.add(temp);
       tempLineRef = temp;
       // keep text above temp drawings
       shapesLayer?.getChildren().forEach((child) => { if (child instanceof Konva.Group) child.moveToTop(); });
       shapesLayer?.batchDraw();
     } else if (activeTool === 'arrow') {
-      drawingArrowStart = { x: p.x, y: p.y };
-      const temp = new Konva.Arrow({ points: [p.x, p.y, p.x, p.y], stroke: strokeColor, strokeWidth, pointerLength: 10, pointerWidth: 10 });
+      drawingArrowStart = { x: cx, y: cy };
+      const temp = new Konva.Arrow({ points: [cx, cy, cx, cy], stroke: strokeColor, strokeWidth, pointerLength: 10, pointerWidth: 10 });
       shapesLayer?.add(temp);
       tempArrowRef = temp;
       // keep text above temp drawings
@@ -468,12 +555,12 @@
       shapesLayer?.batchDraw();
     } else if (activeTool === 'text') {
       if (editingTextId) return;
-      textBoxStart = { x: p.x, y: p.y };
-      tempDraftRect = new Konva.Rect({ x: p.x, y: p.y, width: 0, height: 0, stroke: strokeColor, dash: [4, 4] });
+      textBoxStart = { x: cx, y: cy };
+      tempDraftRect = new Konva.Rect({ x: cx, y: cy, width: 0, height: 0, stroke: strokeColor, dash: [4, 4] });
       shapesLayer?.add(tempDraftRect);
       shapesLayer?.batchDraw();
     } else if (activeTool === 'erase') {
-      eraseAtPoint({ x: p.x, y: p.y });
+      eraseAtPoint({ x: cx, y: cy });
     }
   }
 
@@ -484,23 +571,25 @@
     if (!isEditor || !isPointerDown || !stage) return;
     const p = stage.getPointerPosition();
     if (!p) return;
+    const sc = currentScale();
+    const cx = p.x / sc; const cy = p.y / sc;
     if (activeTool === 'draw' && tempLineRef) {
-      drawingPath.push({ x: p.x, y: p.y });
+      drawingPath.push({ x: cx, y: cy });
       tempLineRef.points(drawingPath.flatMap((pt) => [pt.x, pt.y]));
       shapesLayer?.batchDraw();
     } else if (activeTool === 'text' && textBoxStart && tempDraftRect) {
-      const x = Math.min(textBoxStart.x, p.x);
-      const y = Math.min(textBoxStart.y, p.y);
-      const w = Math.abs(p.x - textBoxStart.x);
-      const h = Math.abs(p.y - textBoxStart.y);
+      const x = Math.min(textBoxStart.x, cx);
+      const y = Math.min(textBoxStart.y, cy);
+      const w = Math.abs(cx - textBoxStart.x);
+      const h = Math.abs(cy - textBoxStart.y);
       tempDraftRect.position({ x, y });
       tempDraftRect.size({ width: w, height: h });
       shapesLayer?.batchDraw();
     } else if (activeTool === 'arrow' && drawingArrowStart && tempArrowRef) {
-      tempArrowRef.points([drawingArrowStart.x, drawingArrowStart.y, p.x, p.y]);
+      tempArrowRef.points([drawingArrowStart.x, drawingArrowStart.y, cx, cy]);
       shapesLayer?.batchDraw();
     } else if (activeTool === 'erase') {
-      eraseAtPoint({ x: p.x, y: p.y });
+      eraseAtPoint({ x: cx, y: cy });
     }
   }
 
@@ -508,6 +597,8 @@
     if (!isEditor || !stage) return;
     const p = stage.getPointerPosition();
     if (!p) return;
+    const sc = currentScale();
+    const cx = p.x / sc; const cy = p.y / sc;
     if (activeTool === 'draw' && drawingPath.length > 1 && activeLayerId) {
       const shape: FreehandShape = {
         id: createId('fh'),
@@ -529,17 +620,17 @@
         createdAt: Date.now(),
         createdBy: currentUser.id,
         updatedAt: Date.now(),
-        points: [drawingArrowStart, { x: p.x, y: p.y }],
+        points: [drawingArrowStart, { x: cx, y: cy }],
         stroke: strokeColor,
         strokeWidth,
         arrowHead: 'triangle',
       };
       addShape(shape);
     } else if (activeTool === 'text' && textBoxStart && activeLayerId) {
-      const x = Math.min(textBoxStart.x, p.x);
-      const y = Math.min(textBoxStart.y, p.y);
-      const w = Math.abs(p.x - textBoxStart.x);
-      const h = Math.abs(p.y - textBoxStart.y);
+      const x = Math.min(textBoxStart.x, cx);
+      const y = Math.min(textBoxStart.y, cy);
+      const w = Math.abs(cx - textBoxStart.x);
+      const h = Math.abs(cy - textBoxStart.y);
       if (w >= MIN_TEXT_SIZE && h >= MIN_TEXT_SIZE) {
         const id = createId('txt');
         const shape: TextShape = {
@@ -673,7 +764,8 @@
     background: rgba(47, 111, 235, 0.12);
     color: #1f4ed4;
   }
-  .stage-wrap { position: relative; }
+  .stage-wrap { position: relative; height: 100%; }
+  .canvas-center { position: absolute; inset: 0; display:flex; align-items:center; justify-content:center; overflow:auto; }
   .busy-banner { position: absolute; top: 10px; right: 10px; background: #8a2c2c; color: white; padding: 4px 8px; border-radius: 6px; opacity: 0.9; }
   .image-input { margin-left: auto; }
   .editor-overlay {
@@ -693,6 +785,8 @@
   .color-swatch.active { outline: 2px solid #2f6feb; outline-offset: 2px; }
   .color-option { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:4px; border:none; background:transparent; cursor:pointer; }
   .color-option[aria-selected="true"] { background: rgba(47,111,235,0.12); }
+  .zoom-control { display:flex; gap:8px; align-items:center; padding-left: 16px; }
+  .zoom-control input[type="range"] { width: 140px; }
   .editor-overlay textarea {
     width: 100%;
     height: 100%;
@@ -750,6 +844,11 @@
         {/if}
       </div>
     </div>
+    <div class="zoom-control" aria-label="Zoom">
+      <span style="font-size:12px; color:#444;">Zoom</span>
+      <input type="range" min="0.25" max="3" step="0.05" value={userZoom} on:input={onZoomInput} />
+      <span style="min-width: 40px; text-align:right; font-variant-numeric: tabular-nums;">{displayedZoom}%</span>
+    </div>
     <input class="image-input" type="file" accept="image/*" on:change={onFileChange} disabled={!isEditor} />
   </div>
   <div class="stage-wrap">
@@ -757,9 +856,8 @@
       <div class="busy-banner">Read-only: in use by another editor</div>
     {/if}
     {#if $docImage}
-      <div style="display:inline-block; position: relative;">
-        <img bind:this={imgEl} src={$docImage.dataUrl} width={$docImage.width} height={$docImage.height} alt="Markup base" style="display:block; max-width:100%; height:auto;" />
-        <div bind:this={stageContainerEl} style="position:absolute; inset:0; z-index:1; pointer-events:auto;"></div>
+      <div class="canvas-center" bind:this={canvasCenterEl}>
+        <div bind:this={stageContainerEl}></div>
         {#if editingTextId}
           <div class="editor-overlay" style="display:{editorStyle.display}; left:{editorStyle.left}; top:{editorStyle.top}; width:{editorStyle.width}; height:{editorStyle.height};">
             <textarea
