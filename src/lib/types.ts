@@ -61,6 +61,7 @@ export type DocState = {
   docId: string;
   image?: DocImage;
   layers: Layer[];
+  comments?: Comment[];
   version: number;
   updatedAt: number;
   updatedBy: string;
@@ -76,4 +77,11 @@ export type VersionSnapshot = {
 };
 
 export type UserRef = { id: string; name?: string; color?: string };
+
+export type Comment = {
+  id: string;
+  text: string;
+  createdAt: number;
+  createdBy: string;
+};
 

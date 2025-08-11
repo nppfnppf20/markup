@@ -1,5 +1,5 @@
 import { writable, derived } from 'svelte/store';
-import type { DocState, Layer, Shape, Tool, UserRef, VersionSnapshot } from '../types';
+import type { DocState, Layer, Shape, Tool, UserRef, VersionSnapshot, Comment } from '../types';
 
 export const currentTool = writable<Tool>('select');
 export const layers = writable<Layer[]>([]);
@@ -28,6 +28,7 @@ export function createEmptyState(docId: string, user: UserRef): DocState {
     layers: [
       { id: 'layer-1', name: 'Layer 1', visible: true, zIndex: 0, shapes: [] },
     ],
+    comments: [],
     version: 0,
     updatedAt: Date.now(),
     updatedBy: user.id,
@@ -55,6 +56,7 @@ export function getStateSnapshot(docId: string, userId: string): DocState {
     docId,
     image: _image,
     layers: _layers,
+    comments: undefined, // not persisted in this snapshot path (UI local only) for now
     version: _version,
     updatedAt: _updatedAt,
     updatedBy: userId,
@@ -84,6 +86,16 @@ export function upsertShape(layerId: string, shape: Shape) {
 export function deleteShape(layerId: string, shapeId: string) {
   console.log('deleteShape called with layerId:', layerId, 'shapeId:', shapeId);
   updateLayer((prev) => prev.map((l) => (l.id === layerId ? { ...l, shapes: l.shapes.filter((s) => s.id !== shapeId) } : l)));
+}
+
+// Comments kept in a lightweight local store for now
+export const comments = writable<Comment[]>([]);
+export function addComment(text: string, user: UserRef) {
+  const c: Comment = { id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, text, createdAt: Date.now(), createdBy: user.id };
+  comments.update((prev) => [c, ...prev]);
+}
+export function deleteComment(id: string) {
+  comments.update((prev) => prev.filter((c) => c.id !== id));
 }
 
 export function undo() {

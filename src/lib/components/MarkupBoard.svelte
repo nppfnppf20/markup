@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import Konva from 'konva';
+  import CommentsPanel from './CommentsPanel.svelte';
   import type { LockAdapter } from '../../lib/adapters/lock';
   import type { StorageAdapter } from '../../lib/adapters/storage';
   import type { DocState, UserRef, Layer, Shape, FreehandShape, ArrowShape, TextShape, Point, Tool } from '../../lib/types';
-  import { applyState, createEmptyState, docImage, docVersion, getStateSnapshot, layers, updateLayer, currentTool, upsertShape, deleteShape, undo, redo, canUndo, canRedo } from '../../lib/stores/board';
+  import { applyState, createEmptyState, docImage, docVersion, getStateSnapshot, layers, updateLayer, currentTool, upsertShape, deleteShape, undo, redo, canUndo, canRedo, comments, addComment, deleteComment } from '../../lib/stores/board';
   import { fileToDataUrlResized } from '../../lib/image';
 
   export let docId: string;
@@ -40,6 +41,7 @@
   let selectedId: string | null = null;
   let isEditor = false;
   let activeTool: Tool = 'select';
+  let showComments = false;
   let lockHeartbeat: any;
   let pollInterval: any;
   let saving = false;
@@ -799,8 +801,8 @@
   }
 </style>
 
-<div class="board-root">
-  <div class="toolbar">
+<div class="board-root" style="grid-template-columns: 1fr 320px; grid-template-rows: auto 1fr; grid-template-areas: 'toolbar toolbar' 'stage comments';">
+  <div class="toolbar" style="grid-area: toolbar;">
     <div>
       <button class:active={$currentTool === 'select'} aria-pressed={$currentTool === 'select'} disabled={!isEditor} on:click={() => currentTool.set('select')}>Select</button>
       <button class:active={$currentTool === 'arrow'} aria-pressed={$currentTool === 'arrow'} disabled={!isEditor} on:click={() => currentTool.set('arrow')}>Arrow</button>
@@ -851,7 +853,7 @@
     </div>
     <input class="image-input" type="file" accept="image/*" on:change={onFileChange} disabled={!isEditor} />
   </div>
-  <div class="stage-wrap">
+  <div class="stage-wrap" style="grid-area: stage;">
     {#if !isEditor}
       <div class="busy-banner">Read-only: in use by another editor</div>
     {/if}
@@ -875,6 +877,9 @@
       <div style="padding: 24px;">No image loaded yet. Use the file picker above.</div>
     {/if}
   </div>
+  <aside style="grid-area: comments; border-left:1px solid var(--color-border);">
+    <CommentsPanel {currentUser} {isEditor} />
+  </aside>
 </div>
 
 
